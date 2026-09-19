@@ -87,14 +87,65 @@ describe('PeriodicRunner constructor', () => {
     assert.equal(runner.isStopped, true);
   });
 
-  it('uses default period when period is 0', () => {
+  it('honors an explicit period of 0 instead of falling back to the default', () => {
     const runner = new PeriodicRunner({ task: noopTask, period: 0 });
-    assert.equal(runner.period, 7000);
+    assert.equal(runner.period, 0);
   });
 
-  it('uses default name when name is empty', () => {
+  it('honors an explicit empty name instead of falling back to the default', () => {
     const runner = new PeriodicRunner({ task: noopTask, name: '' });
-    assert.equal(runner.name, 'PeriodicRunner');
+    assert.equal(runner.name, '');
+  });
+
+  it('throws on a negative period', () => {
+    assert.throws(() => new PeriodicRunner({ task: noopTask, period: -100 }), /non-negative/);
+  });
+
+  it('throws on a NaN period', () => {
+    assert.throws(() => new PeriodicRunner({ task: noopTask, period: NaN }), /non-negative/);
+  });
+
+  it('throws on a non-finite period', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, period: Infinity }),
+      /non-negative/
+    );
+  });
+
+  it('throws on a string period', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, period: '2000' as unknown as number }),
+      /non-negative/
+    );
+  });
+
+  it('throws on an invalid IANA timezone', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, timezone: 'Europe/Instabul' }),
+      /invalid IANA timezone/
+    );
+  });
+
+  it('throws on activeHours with equal start and end', () => {
+    assert.throws(
+      () =>
+        new PeriodicRunner({
+          task: noopTask,
+          activeHours: { start: '10:00', end: '10:00' },
+        }),
+      /cannot be equal/
+    );
+  });
+
+  it('throws on holidays with an out-of-range calendar date', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, holidays: ['2026-13-40'] }),
+      /valid.*calendar dates/
+    );
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, holidays: ['2026-02-30'] }),
+      /valid.*calendar dates/
+    );
   });
 
   it('keeps a custom name when provided', () => {
@@ -561,6 +612,90 @@ describe('PeriodicRunner errors', () => {
       runner.stop();
     } finally {
       errorMock.mock.restore();
+    }
+  });
+
+  it('invokes onError and skips the tick when schedule evaluation throws at runtime', async () => {
+    const onError = mock.fn();
+    let calls = 0;
+    const runner = new PeriodicRunner({
+      period: 100,
+      timezone: 'Europe/Istanbul',
+      task: () => {
+        calls++;
+      },
+      onError,
+      logger: silentLogger(),
+    });
+
+    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+      throw new RangeError('simulated ICU failure');
+    });
+    try {
+      await runner.start();
+      assert.equal(calls, 0);
+      assert.equal(onError.mock.calls.length, 1);
+      assert.ok(onError.mock.calls[0].arguments[0] instanceof RangeError);
+      runner.stop();
+    } finally {
+      toLocaleStringSpy.mock.restore();
+    }
+  });
+
+  it('logs and swallows onError handler failures during schedule evaluation errors', async () => {
+    const errorLog = mock.fn();
+    const runner = new PeriodicRunner({
+      period: 100,
+      timezone: 'Europe/Istanbul',
+      task: noopTask,
+      onError: () => {
+        throw new Error('handler failed');
+      },
+      logger: { debug: () => {}, error: errorLog },
+    });
+
+    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+      throw new RangeError('simulated ICU failure');
+    });
+    try {
+      await runner.start();
+      assert.ok(
+        errorLog.mock.calls.some((call) =>
+          String(call.arguments[0]).includes('schedule evaluation error')
+        )
+      );
+      assert.ok(
+        errorLog.mock.calls.some((call) =>
+          String(call.arguments[0]).includes('onError handler threw')
+        )
+      );
+      runner.stop();
+    } finally {
+      toLocaleStringSpy.mock.restore();
+    }
+  });
+
+  it('logs schedule evaluation errors with the default logger when onError is omitted', async () => {
+    const errorMock = mock.method(console, 'error', () => {});
+    const runner = new PeriodicRunner({
+      period: 100,
+      timezone: 'Europe/Istanbul',
+      task: noopTask,
+    });
+    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+      throw new RangeError('simulated ICU failure');
+    });
+    try {
+      await runner.start();
+      assert.ok(
+        errorMock.mock.calls.some((call) =>
+          String(call.arguments[0]).includes('schedule evaluation error')
+        )
+      );
+      runner.stop();
+    } finally {
+      errorMock.mock.restore();
+      toLocaleStringSpy.mock.restore();
     }
   });
 

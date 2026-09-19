@@ -14,7 +14,13 @@ import type {
   WeekDay,
 } from './types.js';
 import { evaluateRunConstraints } from './schedule.js';
-import { validateActiveHours, validateHolidays, validateWeekDays } from './validation.js';
+import {
+  validateActiveHours,
+  validateHolidays,
+  validatePeriod,
+  validateTimezone,
+  validateWeekDays,
+} from './validation.js';
 
 const defaultLogger: Logger = {
   // eslint-disable-next-line no-console
@@ -90,6 +96,10 @@ export class PeriodicRunner {
       throw new Error('PeriodicRunner: "task" function is required');
     }
 
+    if (period !== undefined) {
+      validatePeriod(period);
+    }
+
     if (activeHours) {
       validateActiveHours(activeHours);
     }
@@ -102,8 +112,12 @@ export class PeriodicRunner {
       validateHolidays(holidays);
     }
 
-    this.name = name || 'PeriodicRunner';
-    this.period = period || 7000;
+    if (timezone) {
+      validateTimezone(timezone);
+    }
+
+    this.name = typeof name === 'string' ? name : 'PeriodicRunner';
+    this.period = typeof period === 'number' ? period : 7000;
     this.task = task;
     this.onError = onError;
     this.activeHours = activeHours || null;
@@ -134,9 +148,23 @@ export class PeriodicRunner {
       return;
     }
 
-    const { allowed, reason } = this.#shouldRun();
-    if (!allowed) {
-      this.#logger.debug(`${this.name} - skipping this tick: ${reason}`);
+    let decision: { allowed: boolean; reason?: string };
+    try {
+      decision = this.#shouldRun();
+    } catch (error) {
+      this.#logger.error(`${this.name} - schedule evaluation error:`, error);
+      if (typeof this.onError === 'function') {
+        try {
+          this.onError(error);
+        } catch (handlerError) {
+          this.#logger.error(`${this.name} - onError handler threw:`, handlerError);
+        }
+      }
+      return;
+    }
+
+    if (!decision.allowed) {
+      this.#logger.debug(`${this.name} - skipping this tick: ${decision.reason}`);
       return;
     }
 
