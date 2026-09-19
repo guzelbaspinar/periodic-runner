@@ -118,6 +118,10 @@ npm run test:coverage
 npm run build       # generates cjs + esm + d.ts into dist/
 ```
 
+## Contributing
+
+Changes land on `main` through pull requests; the **Protect main** ruleset requires CI (`test`, `coverage`) to pass before merge.
+
 ## License
 
 MIT
