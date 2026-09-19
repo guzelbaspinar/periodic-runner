@@ -4,6 +4,8 @@ A `setTimeout`-based, **non-overlapping** self-rescheduling periodic task runner
 
 Fully compatible with CommonJS, ESM, and TypeScript.
 
+Published on npm as [`@guzelbaspinar/periodic-runner`](https://www.npmjs.com/package/@guzelbaspinar/periodic-runner).
+
 ## Features
 
 - ✅ Overlap protection (a new run never starts before the previous one finishes)
