@@ -34,4 +34,12 @@ export interface PeriodicRunnerOptions {
   holidays?: HolidayList;
   /** Custom logger. Defaults to console. */
   logger?: Logger;
+  /**
+   * Optional watchdog, in ms. If `task` doesn't settle within this time, the runner
+   * stops waiting on it (reports the timeout via `onError`) and unlocks `isRunning`
+   * so the next tick isn't skipped forever. The task itself is NOT cancelled — a
+   * hung Promise may still be running/leaking in the background. If omitted, the
+   * runner waits for `task` indefinitely (previous behavior).
+   */
+  taskTimeoutMs?: number;
 }

@@ -4,6 +4,7 @@ import {
   validateActiveHours,
   validateHolidays,
   validatePeriod,
+  validateTaskTimeoutMs,
   validateTimezone,
   validateWeekDays,
 } from './validation.js';
@@ -91,6 +92,27 @@ describe('validatePeriod', () => {
 
   it('rejects non-number types', () => {
     assert.throws(() => validatePeriod('2000' as unknown as number), /non-negative/);
+  });
+});
+
+describe('validateTaskTimeoutMs', () => {
+  it('accepts positive finite numbers', () => {
+    assert.doesNotThrow(() => validateTaskTimeoutMs(1));
+    assert.doesNotThrow(() => validateTaskTimeoutMs(5000));
+  });
+
+  it('rejects zero and negative numbers', () => {
+    assert.throws(() => validateTaskTimeoutMs(0), /positive/);
+    assert.throws(() => validateTaskTimeoutMs(-100), /positive/);
+  });
+
+  it('rejects NaN and non-finite numbers', () => {
+    assert.throws(() => validateTaskTimeoutMs(NaN), /positive/);
+    assert.throws(() => validateTaskTimeoutMs(Infinity), /positive/);
+  });
+
+  it('rejects non-number types', () => {
+    assert.throws(() => validateTaskTimeoutMs('1000' as unknown as number), /positive/);
   });
 });
 

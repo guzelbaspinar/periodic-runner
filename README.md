@@ -14,6 +14,7 @@ Published on npm as [`@guzelbaspinar/periodic-runner`](https://www.npmjs.com/pac
 - ✅ Skip holiday dates (`holidays`), **updatable at runtime**, accepts an array or a `Set`
 - ✅ IANA timezone support
 - ✅ Custom error handling (`onError`) and custom logger injection
+- ✅ Optional per-task watchdog (`taskTimeoutMs`) — reports hung tasks via `onError` instead of locking up forever
 - ✅ CJS + ESM + TypeScript types in a single package (`dist/index.cjs`, `dist/index.js`, `dist/index.d.ts`)
 
 ## Installation
@@ -76,6 +77,23 @@ runner.getHolidays();                                            // -> Set<strin
 
 > Note: the holiday check is evaluated against the **current date** (computed according to the `timezone` option) on every tick, so simply keeping the list up to date is enough — no extra "valid from/to" logic is needed.
 
+## Task watchdog (`taskTimeoutMs`)
+
+By default the runner waits indefinitely for `task()` to settle; a `task` that never resolves/rejects (e.g. a hung HTTP request) leaves `isRunning` `true` forever and every subsequent tick is silently skipped. Set `taskTimeoutMs` to bound how long a single run is allowed to take:
+
+```ts
+const runner = new PeriodicRunner({
+  period: 5000,
+  taskTimeoutMs: 3000, // treat the tick as failed if task() hasn't settled within 3s
+  task: async () => {
+    await fetch('https://example.com', { signal: AbortSignal.timeout(3000) });
+  },
+  onError: (err) => console.error('task timed out or failed:', err),
+});
+```
+
+> **Note:** the task itself is **not cancelled** — Promises cannot be aborted from the outside. `taskTimeoutMs` only stops the *runner* from waiting on it, so `isRunning` unlocks and the next tick isn't skipped forever; `onError` receives a timeout error. If your task can hang (e.g. on network I/O), pair `taskTimeoutMs` with your own cancellation (like `AbortSignal.timeout`) inside the task for full cleanup.
+
 ## API
 
 ### `new PeriodicRunner(options)`
@@ -91,6 +109,7 @@ runner.getHolidays();                                            // -> Set<strin
 | `holidays` | `string[] \| Set<string>` (`"YYYY-MM-DD"`) | ❌ | Dates the task must not run on |
 | `timezone` | `string` | ❌ | IANA timezone, e.g. `"Europe/Istanbul"` |
 | `logger` | `{ debug, error }` | ❌ | Custom logger (default: `console`) |
+| `taskTimeoutMs` | `number` | ❌ | Watchdog in ms. If `task` doesn't settle in time, the runner reports it via `onError` and unlocks (see [below](#task-watchdog-tasktimeoutms)) |
 
 ### Methods
 

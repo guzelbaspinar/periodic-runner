@@ -13,11 +13,12 @@ import type {
   PeriodicRunnerOptions,
   WeekDay,
 } from './types.js';
-import { evaluateRunConstraints } from './schedule.js';
+import { evaluateRunConstraints, getZonedParts } from './schedule.js';
 import {
   validateActiveHours,
   validateHolidays,
   validatePeriod,
+  validateTaskTimeoutMs,
   validateTimezone,
   validateWeekDays,
 } from './validation.js';
@@ -78,6 +79,7 @@ export class PeriodicRunner {
   readonly #weekDays: Set<WeekDay> | null;
   #holidays: Set<string>;
   readonly #logger: Logger;
+  readonly #taskTimeoutMs: number | null;
 
   constructor(options: PeriodicRunnerOptions) {
     const {
@@ -90,6 +92,7 @@ export class PeriodicRunner {
       weekDays,
       holidays,
       logger,
+      taskTimeoutMs,
     } = options;
 
     if (typeof task !== 'function') {
@@ -116,6 +119,10 @@ export class PeriodicRunner {
       validateTimezone(timezone);
     }
 
+    if (taskTimeoutMs !== undefined) {
+      validateTaskTimeoutMs(taskTimeoutMs);
+    }
+
     this.name = typeof name === 'string' ? name : 'PeriodicRunner';
     this.period = typeof period === 'number' ? period : 7000;
     this.task = task;
@@ -125,21 +132,42 @@ export class PeriodicRunner {
     this.#weekDays = weekDays ? new Set(weekDays) : null;
     this.#holidays = holidays ? new Set(holidays) : new Set();
     this.#logger = logger || defaultLogger;
-  }
-
-  /** Returns the "wall clock" Date converted to the configured timezone, if any. */
-  #getNow(): Date {
-    return this.timezone
-      ? new Date(new Date().toLocaleString('en-US', { timeZone: this.timezone }))
-      : new Date();
+    this.#taskTimeoutMs = typeof taskTimeoutMs === 'number' ? taskTimeoutMs : null;
   }
 
   #shouldRun(): { allowed: boolean; reason?: string } {
-    return evaluateRunConstraints(this.#getNow(), {
+    return evaluateRunConstraints(getZonedParts(new Date(), this.timezone), {
       activeHours: this.activeHours,
       weekDays: this.#weekDays,
       holidays: this.#holidays,
     });
+  }
+
+  /**
+   * Runs `this.task()`, racing it against `taskTimeoutMs` when configured. The task
+   * itself is never cancelled (Promises can't be aborted from the outside) — this only
+   * lets the runner stop waiting on a hung task so `isRunning` unlocks and `onError`
+   * is notified instead of the runner silently locking up forever.
+   */
+  async #runWithTimeout(): Promise<void> {
+    const taskTimeoutMs = this.#taskTimeoutMs;
+    if (!taskTimeoutMs) {
+      await this.task();
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`${this.name}: task exceeded taskTimeoutMs (${taskTimeoutMs}ms)`));
+      }, taskTimeoutMs);
+    });
+
+    try {
+      await Promise.race([this.task(), timeout]);
+    } finally {
+      clearTimeout(timer!);
+    }
   }
 
   #runTask = async (): Promise<void> => {
@@ -170,7 +198,7 @@ export class PeriodicRunner {
 
     this.#isRunning = true;
     try {
-      await this.task();
+      await this.#runWithTimeout();
     } catch (error) {
       this.#logger.error(`${this.name} - task error:`, error);
       if (typeof this.onError === 'function') {

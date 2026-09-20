@@ -53,6 +53,7 @@ import { PeriodicRunner, type PeriodicRunnerOptions } from '@guzelbaspinar/perio
 const options: PeriodicRunnerOptions = {
   name: 'TypedExample',
   period: 10_000,
+  taskTimeoutMs: 5000, // if task() hangs past 5s, report it via onError instead of locking up
   task: async () => {
     // ... sync or async work here
   },

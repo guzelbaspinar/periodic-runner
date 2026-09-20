@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-20
+
+### Added
+
+- Optional `taskTimeoutMs` watchdog: if `task()` doesn't settle within the given time, the runner stops waiting on it, reports the timeout via `onError`, and unlocks `isRunning` so subsequent ticks aren't skipped forever. The task itself is not cancelled (Promises can't be aborted from the outside) — pair this with your own cancellation (e.g. `AbortSignal.timeout`) inside `task` for full cleanup.
+
+### Changed
+
+- The timezone-aware scheduling calculation no longer relies on the `new Date(date.toLocaleString(...))` round-trip hack. It now uses `Intl.DateTimeFormat.formatToParts` to read year/month/day/hour/minute/weekday directly, which is spec-compliant across JS engines/ICU builds, avoids DST round-trip ambiguity, and is more efficient. This is an internal refactor; scheduling behavior (activeHours/weekDays/holidays evaluation) is unchanged.
+
 ## [0.1.2] - 2026-09-20
 
 ### Fixed

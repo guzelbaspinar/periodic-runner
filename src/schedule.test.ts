@@ -3,14 +3,28 @@ import assert from 'node:assert/strict';
 import {
   evaluateRunConstraints,
   formatDateString,
+  getZonedParts,
   isAllowedWeekDay,
   isHoliday,
   isWithinActiveHours,
   toMinutes,
+  type ZonedParts,
 } from './schedule.js';
 
 function at(iso: string): Date {
   return new Date(iso);
+}
+
+function parts(overrides: Partial<ZonedParts>): ZonedParts {
+  return {
+    year: 2026,
+    month: 3,
+    day: 16,
+    hour: 10,
+    minute: 0,
+    weekday: 1,
+    ...overrides,
+  };
 }
 
 describe('toMinutes', () => {
@@ -21,9 +35,55 @@ describe('toMinutes', () => {
   });
 });
 
+describe('getZonedParts', () => {
+  it('reads local wall-clock components when timeZone is null', () => {
+    const date = at('2026-03-16T15:30:00');
+    const result = getZonedParts(date, null);
+    assert.equal(result.year, date.getFullYear());
+    assert.equal(result.month, date.getMonth() + 1);
+    assert.equal(result.day, date.getDate());
+    assert.equal(result.hour, date.getHours());
+    assert.equal(result.minute, date.getMinutes());
+    assert.equal(result.weekday, date.getDay());
+  });
+
+  it('resolves components for a configured IANA timezone', () => {
+    // 2026-03-16T10:00:00Z -> Europe/Istanbul is UTC+3 in March (no DST there since 2016).
+    const date = new Date('2026-03-16T10:00:00Z');
+    const result = getZonedParts(date, 'Europe/Istanbul');
+    assert.equal(result.year, 2026);
+    assert.equal(result.month, 3);
+    assert.equal(result.day, 16);
+    assert.equal(result.hour, 13);
+    assert.equal(result.minute, 0);
+    assert.equal(result.weekday, 1); // Monday
+  });
+
+  it('resolves a different weekday/date when the timezone crosses midnight', () => {
+    // 2026-03-16T23:30:00Z is already 2026-03-17 in UTC+something zones ahead of UTC.
+    const date = new Date('2026-03-16T23:30:00Z');
+    const result = getZonedParts(date, 'Europe/Istanbul'); // UTC+3
+    assert.equal(result.day, 17);
+    assert.equal(result.hour, 2);
+    assert.equal(result.weekday, 2); // Tuesday
+  });
+
+  it('resolves UTC consistently', () => {
+    const date = new Date('2026-01-01T00:00:00Z');
+    const result = getZonedParts(date, 'UTC');
+    assert.equal(result.year, 2026);
+    assert.equal(result.month, 1);
+    assert.equal(result.day, 1);
+    assert.equal(result.hour, 0);
+    assert.equal(result.minute, 0);
+    assert.equal(result.weekday, 4); // Thursday
+  });
+});
+
 describe('formatDateString', () => {
-  it('formats as YYYY-MM-DD in local calendar fields', () => {
-    assert.equal(formatDateString(at('2026-03-16T15:00:00')), '2026-03-16');
+  it('formats ZonedParts as YYYY-MM-DD, zero-padded', () => {
+    assert.equal(formatDateString(parts({ year: 2026, month: 3, day: 16 })), '2026-03-16');
+    assert.equal(formatDateString(parts({ year: 2026, month: 1, day: 1 })), '2026-01-01');
   });
 });
 
@@ -31,51 +91,51 @@ describe('isWithinActiveHours', () => {
   const dayWindow = { start: '09:00', end: '18:00' };
 
   it('returns true when activeHours is null', () => {
-    assert.equal(isWithinActiveHours(at('2026-03-16T03:00:00'), null), true);
+    assert.equal(isWithinActiveHours(parts({ hour: 3, minute: 0 }), null), true);
   });
 
   it('respects a same-day window', () => {
-    assert.equal(isWithinActiveHours(at('2026-03-16T09:00:00'), dayWindow), true);
-    assert.equal(isWithinActiveHours(at('2026-03-16T17:59:00'), dayWindow), true);
-    assert.equal(isWithinActiveHours(at('2026-03-16T08:59:00'), dayWindow), false);
-    assert.equal(isWithinActiveHours(at('2026-03-16T18:00:00'), dayWindow), false);
+    assert.equal(isWithinActiveHours(parts({ hour: 9, minute: 0 }), dayWindow), true);
+    assert.equal(isWithinActiveHours(parts({ hour: 17, minute: 59 }), dayWindow), true);
+    assert.equal(isWithinActiveHours(parts({ hour: 8, minute: 59 }), dayWindow), false);
+    assert.equal(isWithinActiveHours(parts({ hour: 18, minute: 0 }), dayWindow), false);
   });
 
   it('supports overnight windows that wrap past midnight', () => {
     const overnight = { start: '22:00', end: '06:00' };
-    assert.equal(isWithinActiveHours(at('2026-03-16T23:00:00'), overnight), true);
-    assert.equal(isWithinActiveHours(at('2026-03-16T05:30:00'), overnight), true);
-    assert.equal(isWithinActiveHours(at('2026-03-16T12:00:00'), overnight), false);
+    assert.equal(isWithinActiveHours(parts({ hour: 23, minute: 0 }), overnight), true);
+    assert.equal(isWithinActiveHours(parts({ hour: 5, minute: 30 }), overnight), true);
+    assert.equal(isWithinActiveHours(parts({ hour: 12, minute: 0 }), overnight), false);
   });
 });
 
 describe('isAllowedWeekDay', () => {
   it('allows all days when weekDays is null', () => {
-    assert.equal(isAllowedWeekDay(at('2026-03-15T10:00:00'), null), true); // Sunday
+    assert.equal(isAllowedWeekDay(parts({ weekday: 0 }), null), true); // Sunday
   });
 
   it('checks day-of-week membership', () => {
     const weekdays = new Set([1, 2, 3, 4, 5] as const);
-    assert.equal(isAllowedWeekDay(at('2026-03-16T10:00:00'), weekdays), true); // Monday
-    assert.equal(isAllowedWeekDay(at('2026-03-15T10:00:00'), weekdays), false); // Sunday
+    assert.equal(isAllowedWeekDay(parts({ weekday: 1 }), weekdays), true); // Monday
+    assert.equal(isAllowedWeekDay(parts({ weekday: 0 }), weekdays), false); // Sunday
   });
 });
 
 describe('isHoliday', () => {
   it('returns false when holiday set is empty', () => {
-    assert.equal(isHoliday(at('2026-01-01T10:00:00'), new Set()), false);
+    assert.equal(isHoliday(parts({ year: 2026, month: 1, day: 1 }), new Set()), false);
   });
 
   it('matches formatted calendar date', () => {
     const holidays = new Set(['2026-01-01']);
-    assert.equal(isHoliday(at('2026-01-01T23:59:00'), holidays), true);
-    assert.equal(isHoliday(at('2026-01-02T00:00:00'), holidays), false);
+    assert.equal(isHoliday(parts({ year: 2026, month: 1, day: 1 }), holidays), true);
+    assert.equal(isHoliday(parts({ year: 2026, month: 1, day: 2 }), holidays), false);
   });
 });
 
 describe('evaluateRunConstraints', () => {
   it('returns allowed when all constraints pass', () => {
-    const result = evaluateRunConstraints(at('2026-03-16T10:00:00'), {
+    const result = evaluateRunConstraints(parts({ weekday: 1, hour: 10, minute: 0 }), {
       activeHours: { start: '09:00', end: '18:00' },
       weekDays: new Set([1, 2, 3, 4, 5]),
       holidays: new Set(),
@@ -85,7 +145,7 @@ describe('evaluateRunConstraints', () => {
   });
 
   it('reports weekday violations first', () => {
-    const result = evaluateRunConstraints(at('2026-03-15T10:00:00'), {
+    const result = evaluateRunConstraints(parts({ weekday: 0 }), {
       activeHours: null,
       weekDays: new Set([1]),
       holidays: new Set(),
@@ -95,7 +155,7 @@ describe('evaluateRunConstraints', () => {
   });
 
   it('reports holidays before active hours', () => {
-    const result = evaluateRunConstraints(at('2026-01-01T10:00:00'), {
+    const result = evaluateRunConstraints(parts({ year: 2026, month: 1, day: 1, weekday: 4 }), {
       activeHours: { start: '09:00', end: '18:00' },
       weekDays: null,
       holidays: new Set(['2026-01-01']),
@@ -105,7 +165,7 @@ describe('evaluateRunConstraints', () => {
   });
 
   it('reports active hours when weekday and holiday pass', () => {
-    const result = evaluateRunConstraints(at('2026-03-16T20:00:00'), {
+    const result = evaluateRunConstraints(parts({ hour: 20, minute: 0 }), {
       activeHours: { start: '09:00', end: '18:00' },
       weekDays: null,
       holidays: new Set(),
