@@ -1,6 +1,6 @@
 {
   "name": "@guzelbaspinar/periodic-runner",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "A non-overlapping, self-rescheduling periodic task runner with active-hours, weekday, and holiday support (CJS, ESM, and TypeScript compatible).",
   "keywords": [
     "periodic",

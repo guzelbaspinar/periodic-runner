@@ -148,6 +148,28 @@ describe('PeriodicRunner constructor', () => {
     );
   });
 
+  it('throws on a non-positive taskTimeoutMs', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, taskTimeoutMs: 0 }),
+      /positive/
+    );
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, taskTimeoutMs: -10 }),
+      /positive/
+    );
+  });
+
+  it('throws on a non-finite or non-number taskTimeoutMs', () => {
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, taskTimeoutMs: NaN }),
+      /positive/
+    );
+    assert.throws(
+      () => new PeriodicRunner({ task: noopTask, taskTimeoutMs: Infinity }),
+      /positive/
+    );
+  });
+
   it('keeps a custom name when provided', () => {
     const runner = new PeriodicRunner({ task: noopTask, name: 'CacheWarmer' });
     assert.equal(runner.name, 'CacheWarmer');
@@ -401,6 +423,77 @@ describe('PeriodicRunner lifecycle', () => {
   });
 });
 
+describe('PeriodicRunner taskTimeoutMs watchdog', () => {
+  beforeEach(() => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+  });
+
+  afterEach(() => {
+    mock.timers.reset();
+  });
+
+  it('reports a timeout via onError and unlocks isRunning when the task hangs', async () => {
+    const onError = mock.fn();
+    const runner = new PeriodicRunner({
+      period: 1000,
+      taskTimeoutMs: 50,
+      task: () => new Promise<void>(() => {}), // never settles
+      onError,
+      logger: silentLogger(),
+    });
+
+    const startPromise = runner.start();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(runner.isRunning, true);
+
+    mock.timers.tick(50);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(onError.mock.calls.length, 1);
+    assert.match((onError.mock.calls[0].arguments[0] as Error).message, /taskTimeoutMs/);
+    assert.equal(runner.isRunning, false);
+
+    runner.stop();
+    await startPromise;
+  });
+
+  it('does not affect tasks that settle before the timeout', async () => {
+    let calls = 0;
+    const onError = mock.fn();
+    const runner = new PeriodicRunner({
+      period: 1000,
+      taskTimeoutMs: 1000,
+      task: () => {
+        calls++;
+      },
+      onError,
+      logger: silentLogger(),
+    });
+
+    await runner.start();
+    assert.equal(calls, 1);
+    assert.equal(onError.mock.calls.length, 0);
+    assert.equal(runner.isRunning, false);
+    runner.stop();
+  });
+
+  it('does not throw when the task rejects before the timeout fires (timer is cleared)', async () => {
+    const onError = mock.fn();
+    const runner = new PeriodicRunner({
+      period: 1000,
+      taskTimeoutMs: 1000,
+      task: () => Promise.reject(new Error('fast failure')),
+      onError,
+      logger: silentLogger(),
+    });
+
+    await runner.start();
+    assert.equal(onError.mock.calls.length, 1);
+    assert.equal((onError.mock.calls[0].arguments[0] as Error).message, 'fast failure');
+    runner.stop();
+  });
+});
+
 describe('PeriodicRunner constraints', () => {
   beforeEach(() => {
     mock.timers.enable({ apis: ['setTimeout', 'Date'] });
@@ -628,7 +721,7 @@ describe('PeriodicRunner errors', () => {
       logger: silentLogger(),
     });
 
-    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+    const formatToPartsSpy = mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', () => {
       throw new RangeError('simulated ICU failure');
     });
     try {
@@ -638,7 +731,7 @@ describe('PeriodicRunner errors', () => {
       assert.ok(onError.mock.calls[0].arguments[0] instanceof RangeError);
       runner.stop();
     } finally {
-      toLocaleStringSpy.mock.restore();
+      formatToPartsSpy.mock.restore();
     }
   });
 
@@ -654,7 +747,7 @@ describe('PeriodicRunner errors', () => {
       logger: { debug: () => {}, error: errorLog },
     });
 
-    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+    const formatToPartsSpy = mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', () => {
       throw new RangeError('simulated ICU failure');
     });
     try {
@@ -671,7 +764,7 @@ describe('PeriodicRunner errors', () => {
       );
       runner.stop();
     } finally {
-      toLocaleStringSpy.mock.restore();
+      formatToPartsSpy.mock.restore();
     }
   });
 
@@ -682,7 +775,7 @@ describe('PeriodicRunner errors', () => {
       timezone: 'Europe/Istanbul',
       task: noopTask,
     });
-    const toLocaleStringSpy = mock.method(Date.prototype, 'toLocaleString', () => {
+    const formatToPartsSpy = mock.method(Intl.DateTimeFormat.prototype, 'formatToParts', () => {
       throw new RangeError('simulated ICU failure');
     });
     try {
@@ -695,7 +788,7 @@ describe('PeriodicRunner errors', () => {
       runner.stop();
     } finally {
       errorMock.mock.restore();
-      toLocaleStringSpy.mock.restore();
+      formatToPartsSpy.mock.restore();
     }
   });
 

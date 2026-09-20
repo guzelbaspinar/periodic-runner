@@ -52,6 +52,12 @@ export function validatePeriod(period: number): void {
   }
 }
 
+export function validateTaskTimeoutMs(taskTimeoutMs: number): void {
+  if (typeof taskTimeoutMs !== 'number' || !Number.isFinite(taskTimeoutMs) || taskTimeoutMs <= 0) {
+    throw new Error('PeriodicRunner: "taskTimeoutMs" must be a positive finite number (ms)');
+  }
+}
+
 export function validateTimezone(timezone: string): void {
   try {
     new Date().toLocaleString('en-US', { timeZone: timezone });
