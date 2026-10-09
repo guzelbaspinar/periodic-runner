@@ -55,9 +55,35 @@ describe('PeriodicRunner constructor', () => {
     assert.equal(runner.getHolidays().size, 0);
   });
 
-  it('accepts an empty weekDays array', () => {
-    const runner = new PeriodicRunner({ task: noopTask, weekDays: [] });
-    assert.deepEqual(runner.getWeekDays(), []);
+  it('rejects an empty weekDays array', () => {
+    assert.throws(() => new PeriodicRunner({ task: noopTask, weekDays: [] }), /weekDays/);
+  });
+
+  it('removeHoliday rejects invalid dates', () => {
+    const runner = new PeriodicRunner({ task: noopTask });
+    assert.throws(() => runner.removeHoliday('nope'), /holidays/);
+  });
+
+  it('aborts the task signal when taskTimeoutMs elapses', async () => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      let received: AbortSignal | undefined;
+      const runner = new PeriodicRunner({
+        task: (signal) => {
+          received = signal;
+          return new Promise<void>(() => {});
+        },
+        taskTimeoutMs: 100,
+        logger: silentLogger(),
+      });
+      const started = runner.start();
+      mock.timers.tick(100);
+      await started;
+      runner.stop();
+      assert.equal(received?.aborted, true);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('falls back to the default logger when logger is null', async () => {

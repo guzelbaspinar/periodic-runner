@@ -20,8 +20,12 @@ export interface PeriodicRunnerOptions {
   name?: string;
   /** Delay between runs in ms. Default: 7000 */
   period?: number;
-  /** Function executed on every period */
-  task: () => Promise<void> | void;
+  /**
+   * Function executed on every period. Receives an AbortSignal that is aborted when
+   * `taskTimeoutMs` elapses; tasks that ignore it may keep running in the background
+   * and overlap with the next tick.
+   */
+  task: (signal: AbortSignal) => Promise<void> | void;
   /** Called when task throws */
   onError?: (error: unknown) => void;
   /** Active time window in "HH:mm" format. If omitted, always considered active. */
