@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-09
+
+First stable release. The 0.x versions were beta; the public API is now considered stable and follows semver. No code changes since 0.3.0.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added
