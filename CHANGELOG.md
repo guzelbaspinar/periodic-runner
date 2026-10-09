@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-09
+
+### Added
+
+- `task` now receives an `AbortSignal` that is aborted when `taskTimeoutMs` elapses. Tasks that ignore it may keep running and overlap with the next tick.
+
+### Changed
+
+- **Breaking:** `weekDays: []` now throws (previously the runner silently never ran).
+- **Breaking:** `removeHoliday()` now validates its argument like `addHoliday()` and throws on invalid dates.
+
 ## [0.2.0] - 2026-09-20
 
 ### Added

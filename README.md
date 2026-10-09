@@ -92,7 +92,14 @@ const runner = new PeriodicRunner({
 });
 ```
 
-> **Note:** the task itself is **not cancelled** — Promises cannot be aborted from the outside. `taskTimeoutMs` only stops the *runner* from waiting on it, so `isRunning` unlocks and the next tick isn't skipped forever; `onError` receives a timeout error. If your task can hang (e.g. on network I/O), pair `taskTimeoutMs` with your own cancellation (like `AbortSignal.timeout`) inside the task for full cleanup.
+> **Note:** Promises cannot be aborted from the outside. On timeout the runner stops waiting, `isRunning` unlocks and `onError` receives a timeout error, and the `AbortSignal` passed to `task(signal)` is aborted. **If your task ignores the signal, it keeps running in the background and can overlap with the next tick.** Pass the signal to cancellable APIs, e.g. `task: (signal) => fetch(url, { signal })`.
+
+## Lifecycle notes
+
+- Call `stop()` on shutdown: the timer is not `unref`'d, so a running runner keeps the process alive.
+- `start()` resolves after the **first** tick finishes (not for the whole loop). If the first run hangs, `start()` hangs too unless `taskTimeoutMs` is set.
+- `period: 0` is allowed; with very fast synchronous tasks it causes needless CPU load.
+- `weekDays` must be non-empty, and `removeHoliday()` throws on invalid dates.
 
 ## API
 

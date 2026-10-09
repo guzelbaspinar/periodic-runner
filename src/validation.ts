@@ -27,10 +27,11 @@ export function validateActiveHours({ start, end }: ActiveHours): void {
 export function validateWeekDays(weekDays: WeekDay[]): void {
   const isValid =
     Array.isArray(weekDays) &&
+    weekDays.length > 0 &&
     weekDays.every((d) => Number.isInteger(d) && d >= 0 && d <= 6);
   if (!isValid) {
     throw new Error(
-      'PeriodicRunner: weekDays must be an array of numbers between 0 (Sunday) and 6 (Saturday)'
+      'PeriodicRunner: weekDays must be an non-empty array of numbers between 0 (Sunday) and 6 (Saturday)'
     );
   }
 }

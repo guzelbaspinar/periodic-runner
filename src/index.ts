@@ -72,7 +72,7 @@ export class PeriodicRunner {
 
   readonly name: string;
   readonly period: number;
-  readonly task: () => Promise<void> | void;
+  readonly task: (signal: AbortSignal) => Promise<void> | void;
   readonly onError?: (error: unknown) => void;
   readonly activeHours: ActiveHours | null;
   readonly timezone: string | null;
@@ -144,27 +144,30 @@ export class PeriodicRunner {
   }
 
   /**
-   * Runs `this.task()`, racing it against `taskTimeoutMs` when configured. The task
-   * itself is never cancelled (Promises can't be aborted from the outside) — this only
-   * lets the runner stop waiting on a hung task so `isRunning` unlocks and `onError`
-   * is notified instead of the runner silently locking up forever.
+   * Runs `this.task(signal)`, racing it against `taskTimeoutMs` when configured. On
+   * timeout the signal is aborted and the runner stops waiting so `isRunning` unlocks
+   * and `onError` is notified. A task that ignores the signal keeps running in the
+   * background (Promises can't be cancelled from the outside).
    */
   async #runWithTimeout(): Promise<void> {
     const taskTimeoutMs = this.#taskTimeoutMs;
+    const controller = new AbortController();
     if (!taskTimeoutMs) {
-      await this.task();
+      await this.task(controller.signal);
       return;
     }
 
     let timer: ReturnType<typeof setTimeout>;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        reject(new Error(`${this.name}: task exceeded taskTimeoutMs (${taskTimeoutMs}ms)`));
+        const error = new Error(`${this.name}: task exceeded taskTimeoutMs (${taskTimeoutMs}ms)`);
+        reject(error);
+        controller.abort(error);
       }, taskTimeoutMs);
     });
 
     try {
-      await Promise.race([this.task(), timeout]);
+      await Promise.race([this.task(controller.signal), timeout]);
     } finally {
       clearTimeout(timer!);
     }
@@ -262,6 +265,7 @@ export class PeriodicRunner {
 
   /** Removes a single holiday date from the list. */
   removeHoliday(date: string): void {
+    validateHolidays([date]);
     this.#holidays.delete(date);
   }
 
